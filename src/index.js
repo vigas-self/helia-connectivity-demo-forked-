@@ -5,6 +5,16 @@
 import { MemoryDatastore } from "datastore-core";
 import { MemoryBlockstore } from "blockstore-core";
 import { LevelDatastore } from "datastore-level";
+import { ipns, ipnsValidator, ipnsSelector } from "@helia/ipns";
+import { dht, pubsub } from "@helia/ipns/routing";
+import { strings } from "@helia/strings";
+import { gossipsub } from "@chainsafe/libp2p-gossipsub";
+import { kadDHT } from "@libp2p/kad-dht";
+import { createLibp2p } from "libp2p";
+import { webSockets } from "@libp2p/websockets";
+import { bootstrap } from "@libp2p/bootstrap";
+
+
 
 import { createHelia as InstantiateHelia } from "helia";
 import { unixfs } from "@helia/unixfs";
@@ -18,9 +28,75 @@ const multiaddrList = document.getElementById("helia-multiaddrs");
 
 let nodeUpdateInterval = null;
 document.addEventListener("DOMContentLoaded", async () => {
-  window.helia = await createHelia();
+
+
+///
+const libp2p = await createLibp2p({
+  transports: [webSockets()],
+  peerDiscovery: [
+      bootstrap({
+        list: [
+          "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+          "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+          "/dnsaddr/bootstrap.libp2p.io/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp",
+          "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+          "/dns4/beta-ipfs.yourself.dev/tcp/443/wss/p2p/12D3KooWJj5EVci5yDVqrN5q6pqmVztDo5RsZJSzQBHDU6tGU7wN"           
+        ],
+      }),
+    ],
+  dht: kadDHT({
+      validators: {
+          ipns: ipnsValidator,
+      },
+      selectors: {
+          ipns: ipnsSelector,
+      },
+  }),
+  // services: { pubsub: gossipsub({allowPublishToZeroPeers: true}) },
+  
+});
+
+
+  ///
+  window.helia = await createHelia({libp2p});
   await helia.libp2p.services.dht.setMode("server");
   window.heliaFs = unixfs(helia);
+////CUSTOM
+
+
+const name = ipns(helia, [dht(helia)]); 
+
+
+// const keyInfo = await helia.libp2p.keychain.createKey("key1", "secp256k1");
+        // const keyInfo = {"id": "QmNg5g4ArUnDu8oX6GabBKKfx3e9RHbNfXxcEphUMa9RVi", "name": "key1"};
+        // console.log('keyInfo :>> ', keyInfo);
+        const peerId = await helia.libp2p.keychain.exportPeerId('key1');
+        console.log('peerId :>> ', peerId);
+        const s = strings(helia);
+        
+setInterval(async() => {
+  try {
+    const date = { date: new Date().toISOString() };
+
+        console.log('date before resolution :>> ', date);
+        const myImmutableAddress = await s.add(JSON.stringify(date));
+        let cid = myImmutableAddress.toString();
+      // publish the name
+      const ipns = await name.publish(peerId, cid);
+      console.log('ipns link :>> ', ipns.value.toString);
+
+      // resolve the name
+      cid = await name.resolve(peerId);
+      console.log('After Resolution CID :>> ', cid);
+      console.log(" contents after resolution: ", await s.get(cid));
+  } catch (err) {
+      console.log(err);
+  }
+  
+}, 5000);
+
+        /////////////////////END CUSTOM
+
 
   helia.libp2p.addEventListener("peer:discovery", (evt) => {
     discoveredPeers.set(evt.detail.id.toString(), evt.detail);
