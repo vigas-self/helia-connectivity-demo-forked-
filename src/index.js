@@ -13,8 +13,11 @@ import { kadDHT } from "@libp2p/kad-dht";
 import { createLibp2p } from "libp2p";
 import { webSockets } from "@libp2p/websockets";
 import { bootstrap } from "@libp2p/bootstrap";
+import { multiaddr } from "multiaddr";
 
-
+// kubo rpc related
+import { create } from "kubo-rpc-client";
+const ipfsClient = create({ url: "https://beta-ipfs.yourself.dev/api/v0" });
 
 import { createHelia as InstantiateHelia } from "helia";
 import { unixfs } from "@helia/unixfs";
@@ -28,86 +31,120 @@ const multiaddrList = document.getElementById("helia-multiaddrs");
 
 let nodeUpdateInterval = null;
 document.addEventListener("DOMContentLoaded", async () => {
-
-
-///
-const libp2p = await createLibp2p({
-  transports: [webSockets()],
-  peerDiscovery: [
+  ///
+  const libp2p = await createLibp2p({
+    transports: [webSockets()],
+    peerDiscovery: [
       bootstrap({
         list: [
           "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
           "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
           "/dnsaddr/bootstrap.libp2p.io/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp",
           "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-          "/dns4/beta-ipfs.yourself.dev/tcp/443/wss/p2p/12D3KooWJj5EVci5yDVqrN5q6pqmVztDo5RsZJSzQBHDU6tGU7wN"           
+          "/dns4/beta-ipfs.yourself.dev/tcp/443/wss/p2p/12D3KooWJj5EVci5yDVqrN5q6pqmVztDo5RsZJSzQBHDU6tGU7wN",
         ],
       }),
     ],
-  dht: kadDHT({
+    dht: kadDHT({
       validators: {
-          ipns: ipnsValidator,
+        ipns: ipnsValidator,
       },
       selectors: {
-          ipns: ipnsSelector,
+        ipns: ipnsSelector,
       },
-  }),
-  // services: { pubsub: gossipsub({allowPublishToZeroPeers: true}) },
-  
-});
-
+    }),
+    // services: { pubsub: gossipsub({allowPublishToZeroPeers: true}) },
+  });
 
   ///
-  window.helia = await createHelia({libp2p});
+  window.helia = await createHelia({ libp2p });
   await helia.libp2p.services.dht.setMode("server");
   window.heliaFs = unixfs(helia);
-////CUSTOM
+  ////CUSTOM
 
+  const name = ipns(helia, [dht(helia)]);
 
-const name = ipns(helia, [dht(helia)]); 
+  // const keyInfo = await helia.libp2p.keychain.createKey("key4", "secp256k1");
+  // const keyInfo = {"id": "QmNg5g4ArUnDu8oX6GabBKKfx3e9RHbNfXxcEphUMa9RVi", "name": "key1"};
+  // console.log('keyInfo :>> ', keyInfo);
+  const peerId = await helia.libp2p.keychain.exportPeerId("key4");
+  console.log("peerId :>> ", peerId);
+  const s = strings(helia);
+  setTimeout(async () => {
+    // const addrString =
+    // "/dns4/test-ipfs.yourself.dev/tcp/443/wss/p2p/12D3KooWGUDSEkwzs2vdgkcw6PMYCfbPKpboYhNpQngm8wdDDbFv"; // test ipfs
+    const addrString = multiaddr(
+      "/dns4/beta-ipfs.yourself.dev/tcp/443/wss/p2p/12D3KooWJj5EVci5yDVqrN5q6pqmVztDo5RsZJSzQBHDU6tGU7wN"
+    );
 
+    const addr = multiaddr(addrString);
 
-// const keyInfo = await helia.libp2p.keychain.createKey("key1", "secp256k1");
-        // const keyInfo = {"id": "QmNg5g4ArUnDu8oX6GabBKKfx3e9RHbNfXxcEphUMa9RVi", "name": "key1"};
-        // console.log('keyInfo :>> ', keyInfo);
-        const peerId = await helia.libp2p.keychain.exportPeerId('key1');
-        console.log('peerId :>> ', peerId);
-        const s = strings(helia);
-        
-setInterval(async() => {
-  try {
-    const date = { date: new Date().toISOString() };
+    const multiCon = await helia.libp2p.dial(addr);
 
-        console.log('date before resolution :>> ', date);
-        const myImmutableAddress = await s.add(JSON.stringify(date));
-        let cid = myImmutableAddress.toString();
-      // publish the name
-      const ipns = await name.publish(peerId, cid);
-      console.log('ipns link :>> ', ipns.value.toString);
+    console.log("multiCon :>> ", multiCon);
+    const peers = await helia.libp2p.getMultiaddrs();
+    console.log("peers :>> ", peers);
+    peers.forEach((p) => console.log("p.toString() :>> ", p.toString()));
+    // const isPeerConnected = peers.find((peer) => addrString.endsWith(peer.peer));
+    //   if (!isPeerConnected) {
+    //     throw new Error('Connection to IPFS Node failed');
+    //   }
+    //   console.info("PEER FOUND", addr);
+    startIPNSPublish();
+  }, 5000);
+  const startIPNSPublish = () => {
+    setInterval(async () => {
+      try {
+        const date = { date: new Date().toISOString() };
 
-      // resolve the name
-      cid = await name.resolve(peerId);
-      console.log('After Resolution CID :>> ', cid);
-      console.log(" contents after resolution: ", await s.get(cid));
-  } catch (err) {
-      console.log(err);
-  }
-  
-}, 5000);
+        console.log("date before resolution :>> ", date);
+        const {cid} = await ipfsClient.add(JSON.stringify(date));
+        const myImmutableAddress = cid;
+        let cidD = myImmutableAddress.toString();
+        console.log('cidD :>> ', cidD);
+        // publish the name
+        const lifetime= {lifetime:10*60*1000};
+        const ipns = await name.publish(peerId, cidD, lifetime);
+        console.log("ipns link :>> ", ipns.value.toString);
 
-        /////////////////////END CUSTOM
+        // resolve the name
+        cidD = await name.resolve(peerId);
+        console.log("After Resolution CID :>> ", cidD);
+        console.log(" contents after resolution: ", await s.get(cidD));
+      } catch (err) {
+        console.log(err);
+      }
+    }, 10000);
+  };
 
+  /////////////////////END CUSTOM
+  await helia.libp2p.services.pubsub.subscribe("fruit");
+  const topics = await helia.libp2p.services.pubsub.getTopics();
+  console.log("topics :>> ", topics);
 
+  await ipfsClient.pubsub.subscribe("fruit");
+  const subsClient = ipfsClient.pubsub.ls();
+  console.log("subsClient :>> ", subsClient);
+
+  await helia.libp2p.services.pubsub.addEventListener("message", (evt) => {
+    if (evt.detail.topic === "fruit") {
+      console.log("evt.detail :>> ", evt.detail);
+      // handle message
+    }
+  });
   helia.libp2p.addEventListener("peer:discovery", (evt) => {
     discoveredPeers.set(evt.detail.id.toString(), evt.detail);
     addToLog(`Discovered peer ${evt.detail.id.toString()}`);
+    console.log("PEER DISCOVERY ::", evt.detail.id.toString());
   });
 
   helia.libp2p.addEventListener("peer:connect", (evt) => {
     addToLog(`Connected to ${evt.detail.toString()}`);
+    console.log(`Connected to ${evt.detail.toString()}`);
   });
   helia.libp2p.addEventListener("peer:disconnect", (evt) => {
     addToLog(`Disconnected from ${evt.detail.toString()}`);
+    console.log(`Disconnected from ${evt.detail.toString()}`);
   });
 
   nodeUpdateInterval = setInterval(async () => {
